@@ -208,7 +208,7 @@ func getIFIndex(name string) (int32, error) {
 	return *(*int32)(unsafe.Pointer(&ifr[unix.IFNAMSIZ])), nil
 }
 
-func (tun *NativeTun) setMTU(n int) error {
+func (tun *NativeTun) SetMTU(n int) error {
 	name, err := tun.Name()
 	if err != nil {
 		return err
@@ -466,7 +466,7 @@ func CreateTUNFromFile(file *os.File, mtu int) (Device, error) {
 	go tun.routineNetlinkListener()
 	go tun.routineHackListener() // cross namespace
 
-	err = tun.setMTU(mtu)
+	err = tun.SetMTU(mtu)
 	if err != nil {
 		unix.Close(tun.netlinkSock)
 		return nil, err

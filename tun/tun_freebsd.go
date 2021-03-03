@@ -401,7 +401,7 @@ func CreateTUNFromFile(file *os.File, mtu int) (Device, error) {
 
 	go tun.routineRouteListener(tunIfindex)
 
-	err = tun.setMTU(mtu)
+	err = tun.SetMTU(mtu)
 	if err != nil {
 		tun.Close()
 		return nil, err
@@ -495,7 +495,7 @@ func (tun *NativeTun) Close() error {
 	return err3
 }
 
-func (tun *NativeTun) setMTU(n int) error {
+func (tun *NativeTun) SetMTU(n int) error {
 	// open datagram socket
 
 	var fd int
