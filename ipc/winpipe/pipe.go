@@ -28,10 +28,9 @@ import (
 //sys getNamedPipeInfo(pipe windows.Handle, flags *uint32, outSize *uint32, inSize *uint32, maxInstances *uint32) (err error) = GetNamedPipeInfo
 //sys getNamedPipeHandleState(pipe windows.Handle, state *uint32, curInstances *uint32, maxCollectionCount *uint32, collectDataTimeout *uint32, userName *uint16, maxUserNameSize uint32) (err error) = GetNamedPipeHandleStateW
 //sys localAlloc(uFlags uint32, length uint32) (ptr uintptr) = LocalAlloc
-//sys ntCreateNamedPipeFile(pipe *windows.Handle, access uint32, oa *objectAttributes, iosb *ioStatusBlock, share uint32, disposition uint32, options uint32, typ uint32, readMode uint32, completionMode uint32, maxInstances uint32, inboundQuota uint32, outputQuota uint32, timeout *int64) (status ntstatus) = ntdll.NtCreateNamedPipeFile
-//sys rtlNtStatusToDosError(status ntstatus) (winerr error) = ntdll.RtlNtStatusToDosErrorNoTeb
-//sys rtlDosPathNameToNtPathName(name *uint16, ntName *unicodeString, filePart uintptr, reserved uintptr) (status ntstatus) = ntdll.RtlDosPathNameToNtPathName_U
-//sys rtlDefaultNpAcl(dacl *uintptr) (status ntstatus) = ntdll.RtlDefaultNpAcl
+//sys ntCreateNamedPipeFile(pipe *windows.Handle, access uint32, oa *objectAttributes, iosb *ioStatusBlock, share uint32, disposition uint32, options uint32, typ uint32, readMode uint32, completionMode uint32, maxInstances uint32, inboundQuota uint32, outputQuota uint32, timeout *int64) (ntstatus error) = ntdll.NtCreateNamedPipeFile
+//sys rtlDosPathNameToNtPathName(name *uint16, ntName *unicodeString, filePart uintptr, reserved uintptr) (ntstatus error) = ntdll.RtlDosPathNameToNtPathName_U
+//sys rtlDefaultNpAcl(dacl *uintptr) (ntstatus error) = ntdll.RtlDefaultNpAcl
 
 type ioStatusBlock struct {
 	Status, Information uintptr
@@ -50,15 +49,6 @@ type unicodeString struct {
 	Length        uint16
 	MaximumLength uint16
 	Buffer        uintptr
-}
-
-type ntstatus int32
-
-func (status ntstatus) Err() error {
-	if status >= 0 {
-		return nil
-	}
-	return rtlNtStatusToDosError(status)
 }
 
 const (
@@ -284,7 +274,10 @@ func makeServerPipeHandle(path string, sd *windows.SECURITY_DESCRIPTOR, c *PipeC
 	oa.Length = unsafe.Sizeof(oa)
 
 	var ntPath unicodeString
-	if err := rtlDosPathNameToNtPathName(&path16[0], &ntPath, 0, 0).Err(); err != nil {
+	if err := rtlDosPathNameToNtPathName(&path16[0], &ntPath, 0, 0); err != nil {
+		if ntstatus, ok := err.(windows.NTStatus); ok {
+			err = ntstatus.Errno()
+		}
 		return 0, &os.PathError{Op: "open", Path: path, Err: err}
 	}
 	defer windows.LocalFree(windows.Handle(ntPath.Buffer))
@@ -297,8 +290,8 @@ func makeServerPipeHandle(path string, sd *windows.SECURITY_DESCRIPTOR, c *PipeC
 		} else {
 			// Construct the default named pipe security descriptor.
 			var dacl uintptr
-			if err := rtlDefaultNpAcl(&dacl).Err(); err != nil {
-				return 0, fmt.Errorf("getting default named pipe ACL: %s", err)
+			if err := rtlDefaultNpAcl(&dacl); err != nil {
+				return 0, fmt.Errorf("failed to get default named pipe ACL: %v", err)
 			}
 			defer windows.LocalFree(windows.Handle(dacl))
 			sd, err := windows.NewSecurityDescriptor()
@@ -337,8 +330,11 @@ func makeServerPipeHandle(path string, sd *windows.SECURITY_DESCRIPTOR, c *PipeC
 		h    windows.Handle
 		iosb ioStatusBlock
 	)
-	err = ntCreateNamedPipeFile(&h, access, &oa, &iosb, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, disposition, 0, typ, 0, 0, 0xffffffff, uint32(c.InputBufferSize), uint32(c.OutputBufferSize), &timeout).Err()
+	err = ntCreateNamedPipeFile(&h, access, &oa, &iosb, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, disposition, 0, typ, 0, 0, 0xffffffff, uint32(c.InputBufferSize), uint32(c.OutputBufferSize), &timeout)
 	if err != nil {
+		if ntstatus, ok := err.(windows.NTStatus); ok {
+			err = ntstatus.Errno()
+		}
 		return 0, &os.PathError{Op: "open", Path: path, Err: err}
 	}
 
