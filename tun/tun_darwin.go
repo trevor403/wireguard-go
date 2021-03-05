@@ -98,6 +98,31 @@ func (tun *NativeTun) routineRouteListener(tunIfindex int) {
 	}
 }
 
+func CreateUnmonitoredTUNFromFD(fd int) (Device, string, error) {
+	err := unix.SetNonblock(fd, true)
+	if err != nil {
+		return nil, "", err
+	}
+	file := os.NewFile(uintptr(fd), "")
+	tun := &NativeTun{
+		tunFile: file,
+		events:  make(chan Event, 10),
+		errors:  make(chan error, 5),
+	}
+	name, err := tun.Name()
+	if err != nil {
+		return nil, "", err
+	}
+
+	tun.routeSocket, err = unix.Socket(unix.AF_ROUTE, unix.SOCK_RAW, unix.AF_UNSPEC)
+	if err != nil {
+		tun.tunFile.Close()
+		return nil, "", err
+	}
+
+	return tun, name, nil
+}
+
 func CreateTUN(name string, mtu int) (Device, error) {
 	ifIndex := -1
 	if name != "utun" {
